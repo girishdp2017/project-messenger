@@ -2,6 +2,8 @@ package com.messenger.controller;
 
 import com.messenger.dto.ConversationRequest;
 import com.messenger.dto.ConversationResponse;
+import com.messenger.model.Conversation;
+import com.messenger.model.User;
 import com.messenger.service.ConversationService;
 import com.messenger.service.UserService;
 import jakarta.validation.Valid;
@@ -11,6 +13,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -52,9 +55,28 @@ public class ConversationController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ConversationResponse> getConversation(@PathVariable Long id) {
-        return conversationService.findById(id)
-                .map(conv -> ResponseEntity.ok(ConversationResponse.from(conv)))
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<ConversationResponse> getConversation(
+            @AuthenticationPrincipal OAuth2User principal,
+            @PathVariable Long id) {
+        String email = principal.getAttribute("email");
+        Optional<User> userOpt = userService.findByEmail(email);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        User user = userOpt.get();
+        Optional<Conversation> convOpt = conversationService.findById(id);
+        if (convOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Conversation conv = convOpt.get();
+        boolean isParticipant = conv.getParticipants().stream()
+                .anyMatch(p -> p.getId().equals(user.getId()));
+        if (!isParticipant) {
+            return ResponseEntity.status(403).build();
+        }
+
+        return ResponseEntity.ok(ConversationResponse.from(conv));
     }
 }

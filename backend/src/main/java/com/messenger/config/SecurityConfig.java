@@ -9,6 +9,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
@@ -81,6 +83,16 @@ public class SecurityConfig {
             }
             if (avatarUrl == null) {
                 avatarUrl = oAuth2User.getAttribute("avatar_url");
+            }
+
+            if (email == null && "github".equals(provider)) {
+                email = providerId + "+github@users.noreply.github.com";
+            }
+
+            if (email == null) {
+                throw new OAuth2AuthenticationException(
+                    new OAuth2Error("email_not_found",
+                        "Email address not available from " + provider + ". Please make your email public and try again.", null));
             }
 
             userService.findOrCreateUser(email, name, avatarUrl, provider, providerId);

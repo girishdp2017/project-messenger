@@ -4,9 +4,15 @@ import { Message } from '../types';
 
 const WS_URL = process.env.REACT_APP_WS_URL || 'http://localhost:8080/ws';
 
+interface SubscriptionInfo {
+  id: string;
+  destination: string;
+  callback: (message: Message) => void;
+}
+
 class WebSocketService {
   private client: Client | null = null;
-  private subscriptions: Map<string, { id: string }> = new Map();
+  private subscriptions: Map<string, SubscriptionInfo> = new Map();
 
   connect(onConnect?: () => void): void {
     this.client = new Client({
@@ -16,6 +22,7 @@ class WebSocketService {
       heartbeatOutgoing: 4000,
       onConnect: () => {
         console.log('WebSocket connected');
+        this.resubscribeAll();
         if (onConnect) onConnect();
       },
       onDisconnect: () => {
@@ -29,28 +36,57 @@ class WebSocketService {
     this.client.activate();
   }
 
+  private resubscribeAll(): void {
+    if (!this.client || !this.client.connected) return;
+
+    const entries = Array.from(this.subscriptions.entries());
+    this.subscriptions.clear();
+
+    for (const [destination, info] of entries) {
+      const subscription = this.client.subscribe(destination, (msg: IMessage) => {
+        const message: Message = JSON.parse(msg.body);
+        info.callback(message);
+      });
+      this.subscriptions.set(destination, {
+        id: subscription.id,
+        destination,
+        callback: info.callback,
+      });
+    }
+  }
+
   subscribeToConversation(
     conversationId: number,
     onMessage: (message: Message) => void
   ): void {
-    if (!this.client || !this.client.connected) return;
-
     const destination = `/topic/conversation.${conversationId}`;
+
     if (this.subscriptions.has(destination)) return;
 
-    const subscription = this.client.subscribe(destination, (msg: IMessage) => {
-      const message: Message = JSON.parse(msg.body);
-      onMessage(message);
-    });
+    const info: SubscriptionInfo = {
+      id: '',
+      destination,
+      callback: onMessage,
+    };
 
-    this.subscriptions.set(destination, subscription);
+    if (this.client && this.client.connected) {
+      const subscription = this.client.subscribe(destination, (msg: IMessage) => {
+        const message: Message = JSON.parse(msg.body);
+        onMessage(message);
+      });
+      info.id = subscription.id;
+    }
+
+    this.subscriptions.set(destination, info);
   }
 
   unsubscribeFromConversation(conversationId: number): void {
     const destination = `/topic/conversation.${conversationId}`;
-    const subscription = this.subscriptions.get(destination);
-    if (subscription) {
-      this.client?.unsubscribe(subscription.id);
+    const info = this.subscriptions.get(destination);
+    if (info) {
+      if (info.id && this.client) {
+        this.client.unsubscribe(info.id);
+      }
       this.subscriptions.delete(destination);
     }
   }
